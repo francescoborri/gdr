@@ -10,7 +10,6 @@ import pandas as pd
 from matplotlib.dates import ConciseDateFormatter
 from numpy.fft import fft, fftfreq
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.seasonal import MSTL
 from statsmodels.tsa.statespace.tools import diff
 from statsmodels.tsa.stattools import adfuller
 
@@ -18,53 +17,108 @@ from rrd import rrd_fetch
 from utils import timedelta_type
 
 
-def plot_fft(series, title="FFT", n=5):
+def plot_fft(series: pd.Series, title: str = "FFT", top: int = 3) -> tuple[plt.Figure, list[timedelta]]:
+    """
+    This functions plots the Fourier transform for the provided time series and returns the frequencies that maximize the amplitude.
+
+    Parameters
+    ---
+    series : `pandas.Series`
+        The time series.
+    title : `str, optional`
+        The title of the plot.
+    top : `int, optional`
+        The number of frequencies to display and return.
+
+    Return
+    ---
+    fig : `matplotlib.figure.Figure`
+        The figure containing the plot.
+    best_periods : `list[datetime.timedelta]`
+        The list of periods corresponding to the best frequencies.
+    """
+
     step = pd.Timedelta(series.index.freq).to_pytimedelta().total_seconds()
 
     f = pd.Series(abs(fft(series)), index=fftfreq(len(series), d=step))
     f = f[f.index > 0]
 
-    best_freqs = f.nlargest(n).index
-    best_periods = 1 / best_freqs
-    best_periods = [timedelta(seconds=period) for period in best_periods]
+    freqs = f.nlargest(top).index
+    periods = 1 / freqs
+    periods = [timedelta(seconds=period) for period in periods]
 
     fig, ax = plt.subplots()
     ax.plot(f, color="black")
     ax.set_xlabel("Frequency")
     ax.set_ylabel("Amplitude")
-    ax.set_xlim(0, np.max(best_freqs) * 1.1)
+    ax.set_xlim(0, np.max(freqs) * 1.1)
     ax.set_title(title)
 
-    for i in range(len(best_freqs)):
-        ax.axvline(best_freqs[i], color=np.random.rand(3), linestyle="--", label=f"Period {best_periods[i]}")
+    for i in range(len(freqs)):
+        ax.axvline(freqs[i], color=np.random.rand(3), linestyle="--", label=f"Period {periods[i]}")
 
     ax.legend(loc="best")
 
-    return fig, best_periods
+    return fig, periods
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Forecasting")
-    parser.add_argument("filename", type=argparse.FileType("r"), help="Input RRD file")
-    parser.add_argument("--start", type=str, help="Start time", default="first")
-    parser.add_argument("--end", type=str, help="End time", default="last")
-    parser.add_argument("--diff", type=int, help="Differencing order", default=0, metavar="d")
+    parser = argparse.ArgumentParser(
+        description="Analyse RRD data with FFT, ACF and PACF plots, ADF test and seasonality decomposition"
+    )
+    parser.add_argument("filename", type=argparse.FileType("r"), help="input RRD file")
     parser.add_argument(
-        "--decompose",
-        action="store_true",
-        help="Enable seasonality decomposition (ACF and PACF will be calculated on residuals)",
+        "-s",
+        "--start",
+        type=str,
+        default="end-30d",
+        metavar="START",
+        help="start time from which fetch data (parsed by rrdtool using the AT-STYLE format), default is 30 days before the last observation in the file",
     )
     parser.add_argument(
+        "-e",
+        "--end",
+        type=str,
+        default="last",
+        metavar="END",
+        help="end time until which fetch data (parsed by rrdtool using the AT-STYLE format), default is the last observation in the file",
+    )
+    parser.add_argument(
+        "-i",
+        "--step",
+        type=timedelta_type,
+        default=None,
+        metavar="STEP",
+        help="preferred interval between 2 data points (note: if specified the data may be downsampled)",
+    )
+    parser.add_argument("-d", "--diff", type=int, default=0, metavar="D", help="differencing order")
+    parser.add_argument("-D", "--diff_seasonal", type=int, default=0, metavar="D", help="seasonal differencing order")
+    parser.add_argument(
+        "-m",
         "--periods",
         type=timedelta_type,
-        help="List of periods for seasonality decomposition",
         nargs="+",
-        default=[],
+        metavar="PERIOD",
+        help="list of periods for seasonality decomposition (parsed by pandas.Timedelta, see https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Timedelta.html for the available formats)",
     )
-    parser.add_argument("--save", type=str, help="Save plots in the specified directory")
+    parser.add_argument("-w", "--save", type=str, metavar="DIR", help="enables saving plots to a directory")
 
     args = parser.parse_args()
-    (start, end, step), data = rrd_fetch(args.filename.name, args.start, args.end)
+    start, end, step, data = rrd_fetch(filename=args.filename.name, start=args.start, end=args.end, step=args.step)
+
+    if args.periods:
+        for seasonal_period in args.periods:
+            if seasonal_period.total_seconds() / step.total_seconds() < 2:
+                parser.error(f"A period of {seasonal_period} is too short as step is {step}")
+            elif seasonal_period.total_seconds() % step.total_seconds() != 0:
+                parser.error(f"A period of {seasonal_period} is not a multiple of the step")
+
+    if args.save:
+        if not os.path.exists(args.save):
+            os.makedirs(args.save)
+
+        if not os.path.isdir(args.save):
+            parser.error(f"{args.save} is not a directory")
 
     figs = {}
 
@@ -79,45 +133,28 @@ if __name__ == "__main__":
         series.interpolate(method="time", inplace=True)
 
         figs["fft"], periods = plot_fft(series, title=f"{source} FFT")
-        print("Suggested periods:\n\t" + "\n\t".join(str(period) for period in periods))
 
-        if args.diff != 0:
-            series = diff(series, k_diff=args.diff)
+        differenced = series
+        seasonal_period = int((args.periods[0] if args.periods else periods[0]).total_seconds() // step.total_seconds())
+
+        if args.diff != 0 or args.diff_seasonal != 0:
+            differenced = diff(series, k_diff=args.diff, k_seasonal_diff=args.diff_seasonal, seasonal_periods=seasonal_period)
             figs["differenced"], ax = plt.subplots()
-            ax.plot(series, label=f"{source} differenced {args.diff} times", color="black")
+            ax.plot(differenced, label=f"{source} d={args.diff},D={args.diff_seasonal}", color="black")
             ax.xaxis.set_major_formatter(ConciseDateFormatter(ax.xaxis.get_major_locator()))
             ax.legend(loc="best")
 
-        _, pvalue = adfuller(series)[:2]
-        print(f"ADF test p-value={pvalue}")
+        # Null hypothesis: the time series is non-stationary
+        _, pvalue = adfuller(differenced)[:2]
+        print(f"ADF test p-value={pvalue} => the series is likely {'non-' if pvalue > 0.05 else ''}stationary")
 
-        if pvalue < 0.05:
-            print(f"Suggested d={args.diff}")
-        else:
-            print(f"Suggested d>={args.diff + 1}")
-
-        if args.decompose:
-            periods = [
-                int(period.total_seconds() // step.total_seconds())
-                for period in (args.periods if len(args.periods) > 0 else periods)
-            ]
-            decomposition = MSTL(series, periods=periods).fit()
-            figs["decomposition"] = decomposition.plot()
-
-            series = decomposition.resid
-
-        figs["acf"] = plot_acf(series, title=f"{source} ACF")
-        figs["pacf"] = plot_pacf(series, title=f"{source} PACF")
+        figs["acf"] = plot_acf(differenced, title=f"{source} ACF", lags=seasonal_period)
+        figs["pacf"] = plot_pacf(differenced, title=f"{source} PACF", lags=seasonal_period)
 
         if args.save:
-            if not os.path.exists(args.save):
-                os.makedirs(args.save)
-
-            if not os.path.isdir(args.save):
-                raise ValueError(f"{args.save} is not a directory")
-
             for name, fig in figs.items():
-                fig.savefig(f"{args.save}/{source}-{name}.png")
+                fig.set_size_inches(19.20, 10.80)
+                fig.savefig(os.path.join(args.save, f"{source}-{name}.png"), dpi=100)
 
     if not args.save:
         plt.show()
