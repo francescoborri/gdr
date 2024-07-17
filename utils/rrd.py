@@ -45,20 +45,23 @@ def rrd_fetch(
     end = start + len(raw) * rrd_step
     zipped = dict(zip(ds, zip(*raw)))
 
+    if step and step < rrd_step:
+        raise ValueError(f"Cannot downsample from {rrd_step} to {step}")
+
     data = {}
 
     for source in zipped:
-        index = pd.date_range(start, end, freq=rrd_step, inclusive="left")
+        index = pd.date_range(start=start, end=end, freq=rrd_step, inclusive="left")
         data[source] = pd.Series(zipped[source], index=index)
 
         if step:
-            if step < rrd_step:
-                raise ValueError(f"Cannot downsample from {rrd_step} to {step}")
-            else:
-                data[source] = data[source].resample(step).mean()
-                start = data[source].index[0]
-                end = data[source].index[-1] + step
-        else:
-            step = rrd_step
+            data[source] = data[source].resample(step).mean()
+
+    if step:
+        index = data[list(data.keys())[0]].index
+        start = index[0]
+        end = index[-1] + step
+    else:
+        step = rrd_step
 
     return start, end, step, data
