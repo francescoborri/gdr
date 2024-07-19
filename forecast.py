@@ -31,7 +31,7 @@ if __name__ == "__main__":
         type=str,
         default="end-30d",
         metavar="START",
-        help="start time from which fetch data (parsed by rrdtool using the AT-STYLE format), default is 30 days before the last observation in the file",
+        help="start time from which fetch data (parsed by rrdtool using the AT-STYLE format, with the addition of the keyword \"last\", which means the timestamp of the last observation in the file), default is 30 days before the last observation in the file",
     )
     parser.add_argument(
         "-e",
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         type=str,
         default="last",
         metavar="END",
-        help="end time until which fetch data (parsed by rrdtool using the AT-STYLE format), default is the last observation in the file",
+        help="end time until which fetch data (parsed the same way as the --start option), default is the last observation in the file",
     )
     parser.add_argument(
         "-i",
@@ -53,7 +53,7 @@ if __name__ == "__main__":
         "-m",
         "--seasonal-period",
         type=timedelta_type,
-        default=None,
+        default=timedelta(days=1),
         metavar="SEAS_PERIOD",
         help="seasonal period (parsed by pandas.Timedelta, see https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Timedelta.html for the available formats), default is 1 day",
     )
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         type=timedelta_type,
         default=timedelta(days=7),
         metavar="FC_PERIOD",
-        help="forecast period (parsed the same way as seasonal period), default is 1 day",
+        help="forecast period (parsed the same way as seasonal period), default is 7 day",
     )
     parser.add_argument(
         "-t",
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         type=str,
         default="add",
         choices=["add", "mul", "additive", "multiplicative"],
-        help="trend type for the Holt-Winters method",
+        help="trend type for the Holt-Winters method, default is additive",
     )
     parser.add_argument(
         "-l",
@@ -79,7 +79,7 @@ if __name__ == "__main__":
         type=str,
         default="add",
         choices=["add", "mul", "additive", "multiplicative"],
-        help="seasonal type for the Holt-Winters method",
+        help="seasonal type for the Holt-Winters method, default is additive",
     )
     parser.add_argument(
         "-d",
@@ -191,8 +191,8 @@ if __name__ == "__main__":
         if args.verbose:
             print(fit.summary(), "\n")
 
-        print(f"RMSE over test set ({1-args.training_percentage:.0%} of data): {rmse}", "\n")
-        print(f"{len(anomaly_indexes)} anomalies detected", "\n")
+        print(f"RMSE over test set ({1-args.training_percentage:.0%} of data): {rmse}")
+        print(f"{len(anomaly_indexes)} anomalies detected")
 
         for dt in anomaly_indexes:
             print(f"{source} anomaly detected at time {dt} with value {series[dt]}")

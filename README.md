@@ -74,19 +74,19 @@ options:
     -h, --help
         show this help message and exit
     -s START, --start START
-        start time from which fetch data (parsed by rrdtool using the AT-STYLE format), default is 30 days before the last observation in the file
+        start time from which fetch data (parsed by rrdtool using the AT-STYLE format, with the addition of the keyword "last", which means the timestamp of the last observation in the file), default is 30 days before the last observation in the file
     -e END, --end END
-        end time until which fetch data (parsed by rrdtool using the AT-STYLE format), default is the last observation in the file
+        end time until which fetch data (parsed the same way as the --start option), default is the last observation in the file
     -i STEP, --step STEP
         preferred interval between 2 data points (note: if specified the data may be downsampled)
     -m SEAS_PERIOD, --seasonal-period SEAS_PERIOD
         seasonal period (parsed by pandas.Timedelta, see https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.Timedelta.html for the available formats), default is 1 day
     -f FC_PERIOD, --forecast-period FC_PERIOD
-        forecast period (parsed the same way as seasonal period), default is 1 day
+        forecast period (parsed the same way as seasonal period), default is 7 day
     -t {add,mul,additive,multiplicative}, --trend-type {add,mul,additive,multiplicative}
-        trend type for the Holt-Winters method
+        trend type for the Holt-Winters method, default is additive
     -l {add,mul,additive,multiplicative}, --seasonal-type {add,mul,additive,multiplicative}
-        seasonal type for the Holt-Winters method
+        seasonal type for the Holt-Winters method, default is additive
     -d DELTA, --delta DELTA
         delta factor which defines the amplitude of the anomaly threshold, default is 1.5
     -p PERCENT, --training-percentage PERCENT
@@ -106,8 +106,37 @@ python3 forecast.py <filename.rrd> arima -s end-30d -i 12h -f 1d
 ```
 
 Un altro possibile esempio che utilizza però *Holt-Winters* sui dati disponibili del penultimo mese con un intervallo di 30 minuti tra un osservazione e l'altra e un periodo di previsione di una settimana è il seguente:
+
 ```bash
 python3 forecast.py <filename.rrd> holt_winters -s end-30d -e last-30d -i 30m -f 7d
 ```
 
-Una volta lanciato il programma, verranno mostrati i dati osservati (ed eventualmente quelli interpolati), le previsioni effettuate e le anomalie rilevate.
+Una volta lanciato il programma, verranno mostrati i dati osservati (ed eventualmente quelli interpolati), le previsioni effettuate, la soglia di anomalia definita dallo *z-score* e le anomalie rilevate.
+
+## Test
+
+I test sono stati condotti utilizzando alcuni RRD forniti dal professore, contenenti dati di traffico di rete e che esibiscono una stagionalità giornaliera o settimanale.
+
+### `bytes`
+
+![ARIMA](img/bytes-arima.png)
+
+![*Holt-Winters*](img/bytes-holt_winters.png)
+
+### `num_flows`
+
+![ARIMA](img/num_flows-arima.png)
+
+![*Holt-Winters*](img/num_flows-holt_winters.png)
+
+### `alerted_flows`
+
+![ARIMA](img/alerted_flows-arima.png)
+
+![*Holt-Winters*](img/alerted_flows-holt_winters.png)
+
+### Risultati
+
+Dai grafici si nota che ARIMA ha bisogno di almeno 2 stagioni di dati per effettuare previsioni accurate con intervalli di confidenza che riescano a identificare anomalie sui dati. *Holt-Winters* riesce ad adattarsi meglio ai dati, che però potrebbe diventare uno svantaggio nel caso di anomalie continue in quanto il modello si adatta alle anomalie.
+
+Entrambi i modelli riescono a identificare le anomalie nel caso di picchi improvvisi (come nel caso di `alerted_flows`).

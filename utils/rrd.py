@@ -33,10 +33,13 @@ def rrd_fetch(
         A dictionary containing the data, indexed by the names of the data sources, with values of type `pandas.Series`.
     """
 
-    last_ts = rrdtool.last(filename)
+    last = str(rrdtool.last(filename))
+
+    if "last" in start:
+        start = start.replace("last", last)
 
     if "last" in end:
-        end = end.replace("last", str(last_ts))
+        end = end.replace("last", last)
 
     (start, end, rrd_step), ds, raw = rrdtool.fetch(filename, "AVERAGE", "--start", start, "--end", end)
 
