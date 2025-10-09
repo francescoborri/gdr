@@ -1,9 +1,5 @@
 # Progetto Gestione di rete A.A. 23/24
 
-- Francesco Borri
-- 639079
-- f.borri2@studenti.unipi.it
-
 ## Introduzione
 
 Il progetto consiste nell'implementare due modelli statistici, *Holt-Winters* e ARIMA, per la proiezione di dati e rilevamento di anomalie sulla base di serie temporali memorizzate sotto forma di database RRD.
